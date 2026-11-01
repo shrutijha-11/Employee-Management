@@ -20,11 +20,30 @@ Java, Spring Boot, Spring Data JPA, MySQL, Maven
 | Method | URL | Description | Success |
 |---|---|---|---|
 | POST | /api/employees | Create employee | 201 |
-| GET | /api/employees | List all employees | 200 |
+| GET | /api/employees?page=0&size=10&sortBy=fullName&direction=asc | Paged, sorted list | 200 |
 | GET | /api/employees/{id} | Get employee by ID | 200 |
 | PUT | /api/employees/{id} | Update employee | 200 |
 | DELETE | /api/employees/{id} | Delete employee | 204 |
-| GET | /api/employees/department/{department} | Search by department | 200 |
+| GET | /api/employees/department/{department} | Employees in a department | 200 |
+| GET | /api/employees/search?name={name} | Case-insensitive name search | 200 |
+| GET | /api/employees/salary?min={min}&max={max} | Salary range (inclusive) | 200 |
+| GET | /api/employees/summary | Count and average salary per department | 200 |
+
+`sortBy` accepts `fullName`, `email`, `department`, `salary`, `joiningDate`. `direction` accepts `asc` or `desc`.
+
+## API Documentation
+With the app running, open `http://localhost:8080/swagger-ui/index.html`.
+
+## Running the Tests
+```
+mvn test
+```
+Tests use an in-memory H2 database, so MySQL is not needed to run them.
+
+## Error Responses
+- 400: invalid input (validation failure, bad query values, salary range errors)
+- 404: employee not found
+- 409: email already exists
 
 ## Sample Request Body
 ```json

@@ -6,6 +6,8 @@ import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name="employees")
 public class Employee {
@@ -34,6 +36,12 @@ public class Employee {
     @NotNull(message = "Joining date is required")
     @Column(nullable = false)
     private LocalDate joiningDate;
+
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(nullable = false)
+    private LocalDateTime updatedAt;
 
     public Long getId() {
         return id;
@@ -81,6 +89,22 @@ public class Employee {
 
     public void setJoiningDate(LocalDate joiningDate) {
         this.joiningDate = joiningDate;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 
     // JPA needs a no-argument constructor

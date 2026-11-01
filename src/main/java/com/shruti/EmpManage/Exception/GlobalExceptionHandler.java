@@ -6,6 +6,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -37,7 +38,16 @@ public class GlobalExceptionHandler {
             return buildResponse(HttpStatus.BAD_REQUEST,
                     "Invalid or malformed request body (check field types and that dates use yyyy-MM-dd)");
         }
+        @ExceptionHandler(InvalidRequestException.class)
+        public ResponseEntity<Map<String, Object>> handleInvalidRequest(InvalidRequestException ex) {
+            return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
 
+        @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+        public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+            return buildResponse(HttpStatus.BAD_REQUEST,
+                "Invalid value for parameter '" + ex.getName() + "'");
+        }
         private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, Object message) {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("timestamp", LocalDateTime.now());
