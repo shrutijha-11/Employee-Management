@@ -24,9 +24,9 @@ public class Employee {
     @Column(nullable = false, unique = true)
     private String email;
 
-    @NotBlank(message = "Department is required")
-    @Column(nullable = false)
-    private String department;
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "department_id", nullable = false)
+    private Department department;
 
     @NotNull(message = "Salary is required")
     @DecimalMin(value = "0.0", message = "Salary cannot be negative")
@@ -42,6 +42,25 @@ public class Employee {
 
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private EmployeeStatus status = EmployeeStatus.ACTIVE;
+
+    @Version
+    private Long version;
+
+    public EmployeeStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(EmployeeStatus status) {
+        this.status = status;
+    }
+    public Long getVersion()
+    {
+        return version;
+    }
 
     public Long getId() {
         return id;
@@ -67,11 +86,11 @@ public class Employee {
         this.email = email;
     }
 
-    public String getDepartment() {
+    public Department getDepartment() {
         return department;
     }
 
-    public void setDepartment(String department) {
+    public void setDepartment(Department department) {
         this.department = department;
     }
 
