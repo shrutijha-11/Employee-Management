@@ -1,12 +1,18 @@
 package com.shruti.EmpManage.Controller;
 
 import com.shruti.EmpManage.Dto.DepartmentSummaryResponse;
+import com.shruti.EmpManage.Dto.EmployeeFilterRequest;
+import com.shruti.EmpManage.Dto.EmployeeHistoryResponse;
 import com.shruti.EmpManage.Dto.EmployeeRequest;
 import com.shruti.EmpManage.Dto.EmployeeResponse;
+import com.shruti.EmpManage.Dto.EmployeeUpdateRequest;
 import com.shruti.EmpManage.Dto.PageResponse;
+import com.shruti.EmpManage.Dto.StatusUpdateRequest;
+import com.shruti.EmpManage.Entity.EmployeeStatus;
 import com.shruti.EmpManage.Exception.DuplicateEmailException;
 import com.shruti.EmpManage.Exception.EmployeeNotFoundException;
 import com.shruti.EmpManage.Exception.InvalidRequestException;
+import com.shruti.EmpManage.Exception.VersionConflictException;
 import com.shruti.EmpManage.Service.EmployeeService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,9 +31,12 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -42,7 +51,7 @@ class EmpContTest {
 
     // ---------- helpers ----------
 
-    private static final String VALID_JSON = """
+    private static final String CREATE_JSON = """
             {
               "fullName": "Amit Sharma",
               "email": "amit@example.com",
@@ -52,59 +61,72 @@ class EmpContTest {
             }
             """;
 
-    private EmployeeResponse response(Long id, String name, String email, String dept, String salary) {
+    private static final String UPDATE_JSON = """
+            {
+              "fullName": "Amit Sharma",
+              "email": "amit@example.com",
+              "department": "Finance",
+              "salary": 65000,
+              "joiningDate": "2024-01-15",
+              "version": 0
+            }
+            """;
+
+    private EmployeeResponse response(Long id, String name, String email, String dept,
+                                      String salary, EmployeeStatus status, Long version) {
         LocalDateTime now = LocalDateTime.of(2024, 1, 1, 10, 0);
         return new EmployeeResponse(id, name, email, dept, new BigDecimal(salary),
-                LocalDate.of(2024, 1, 15), now, now);
+                LocalDate.of(2024, 1, 15), status, version, now, now);
+    }
+
+    private EmployeeResponse amit() {
+        return response(1L, "Amit Sharma", "amit@example.com", "IT", "50000", EmployeeStatus.ACTIVE, 0L);
     }
 
     // ---------- create (POST) ----------
 
     @Test
-    void create_validRequest_returns201() throws Exception {
-        when(employeeService.createEmployee(any(EmployeeRequest.class)))
-                .thenReturn(response(1L, "Amit Sharma", "amit@example.com", "IT", "50000"));
+    void create_validRequest_returns201WithActiveStatusAndVersionZero() throws Exception {
+        when(employeeService.createEmployee(any(EmployeeRequest.class))).thenReturn(amit());
 
         mockMvc.perform(post("/api/employees")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(VALID_JSON))
+                        .content(CREATE_JSON))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.fullName").value("Amit Sharma"));
+                .andExpect(jsonPath("$.fullName").value("Amit Sharma"))
+                .andExpect(jsonPath("$.department").value("IT"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.version").value(0))
+                .andExpect(jsonPath("$.createdAt").exists())
+                .andExpect(jsonPath("$.updatedAt").exists());
     }
 
     @Test
-    void create_idInBodyIsIgnored_returns201() throws Exception {
-        when(employeeService.createEmployee(any(EmployeeRequest.class)))
-                .thenReturn(response(1L, "Amit Sharma", "amit@example.com", "IT", "50000"));
-
-        String jsonWithId = VALID_JSON.replace("{", "{ \"id\": 50,");
+    void create_idInBodyIsIgnored_returnsTheGeneratedId() throws Exception {
+        when(employeeService.createEmployee(any(EmployeeRequest.class))).thenReturn(amit());
 
         mockMvc.perform(post("/api/employees")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(jsonWithId))
+                        .content(CREATE_JSON.replace("{", "{ \"id\": 50,")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(1));   // generated id, not 50
+                .andExpect(jsonPath("$.id").value(1));
     }
 
     @Test
     void create_negativeSalary_returns400() throws Exception {
-        String json = VALID_JSON.replace("50000", "-50000");
-
         mockMvc.perform(post("/api/employees")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(CREATE_JSON.replace("50000", "-50000")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message.salary").value("Salary cannot be negative"));
     }
 
     @Test
     void create_invalidEmail_returns400() throws Exception {
-        String json = VALID_JSON.replace("amit@example.com", "notanemail");
-
         mockMvc.perform(post("/api/employees")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(CREATE_JSON.replace("amit@example.com", "notanemail")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message.email").value("Email must be valid"));
     }
@@ -119,12 +141,22 @@ class EmpContTest {
 
     @Test
     void create_badDateFormat_returns400() throws Exception {
-        String json = VALID_JSON.replace("2024-01-15", "15-01-2024");
+        mockMvc.perform(post("/api/employees")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_JSON.replace("2024-01-15", "15-01-2024")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void create_unknownDepartment_returns400() throws Exception {
+        when(employeeService.createEmployee(any(EmployeeRequest.class)))
+                .thenThrow(new InvalidRequestException("Department 'Nope' does not exist"));
 
         mockMvc.perform(post("/api/employees")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
-                .andExpect(status().isBadRequest());
+                        .content(CREATE_JSON.replace("IT", "Nope")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Department 'Nope' does not exist"));
     }
 
     @Test
@@ -134,18 +166,16 @@ class EmpContTest {
 
         mockMvc.perform(post("/api/employees")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(VALID_JSON))
+                        .content(CREATE_JSON))
                 .andExpect(status().isConflict());
     }
 
-    // ---------- get all, paginated (GET) ----------
+    // ---------- list (GET) ----------
 
     @Test
-    void getAll_defaults_returns200WithPageDetails() throws Exception {
-        PageResponse<EmployeeResponse> page = new PageResponse<>(
-                List.of(response(1L, "Amit Sharma", "amit@example.com", "IT", "50000")),
-                0, 10, 1, 1);
-        when(employeeService.getAllEmployees(0, 10, "fullName", "asc")).thenReturn(page);
+    void list_defaults_returns200WithPageDetails() throws Exception {
+        PageResponse<EmployeeResponse> page = new PageResponse<>(List.of(amit()), 0, 10, 1, 1);
+        when(employeeService.getAllEmployees(0, 10, "fullName", "asc", null)).thenReturn(page);
 
         mockMvc.perform(get("/api/employees"))
                 .andExpect(status().isOk())
@@ -156,9 +186,9 @@ class EmpContTest {
     }
 
     @Test
-    void getAll_withPagingAndSorting_passesParametersToService() throws Exception {
-        PageResponse<EmployeeResponse> page = new PageResponse<>(List.of(), 1, 2, 5, 3);
-        when(employeeService.getAllEmployees(1, 2, "salary", "desc")).thenReturn(page);
+    void list_withPagingAndSorting_passesParametersToService() throws Exception {
+        when(employeeService.getAllEmployees(1, 2, "salary", "desc", null))
+                .thenReturn(new PageResponse<>(List.of(), 1, 2, 5, 3));
 
         mockMvc.perform(get("/api/employees")
                         .param("page", "1")
@@ -169,13 +199,26 @@ class EmpContTest {
                 .andExpect(jsonPath("$.currentPage").value(1))
                 .andExpect(jsonPath("$.totalPages").value(3));
 
-        verify(employeeService).getAllEmployees(1, 2, "salary", "desc");
+        verify(employeeService).getAllEmployees(1, 2, "salary", "desc", null);
     }
 
     @Test
-    void getAll_invalidSortBy_returns400() throws Exception {
-        when(employeeService.getAllEmployees(anyInt(), anyInt(), eq("password"), anyString()))
-                .thenThrow(new InvalidRequestException("sortBy must be one of: fullName, email, department, salary, joiningDate"));
+    void list_withStatus_passesStatusToService() throws Exception {
+        EmployeeResponse inactive = response(5L, "Gone", "gone@example.com", "IT", "30000",
+                EmployeeStatus.INACTIVE, 1L);
+        when(employeeService.getAllEmployees(0, 10, "fullName", "asc", "INACTIVE"))
+                .thenReturn(new PageResponse<>(List.of(inactive), 0, 10, 1, 1));
+
+        mockMvc.perform(get("/api/employees").param("status", "INACTIVE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("INACTIVE"));
+    }
+
+    @Test
+    void list_invalidSortBy_returns400() throws Exception {
+        when(employeeService.getAllEmployees(anyInt(), anyInt(), eq("password"), anyString(), any()))
+                .thenThrow(new InvalidRequestException(
+                        "sortBy must be one of: fullName, email, department, salary, joiningDate"));
 
         mockMvc.perform(get("/api/employees").param("sortBy", "password"))
                 .andExpect(status().isBadRequest())
@@ -184,7 +227,16 @@ class EmpContTest {
     }
 
     @Test
-    void getAll_nonNumericPage_returns400() throws Exception {
+    void list_unknownStatus_returns400() throws Exception {
+        when(employeeService.getAllEmployees(anyInt(), anyInt(), anyString(), anyString(), eq("bogus")))
+                .thenThrow(new InvalidRequestException("status must be ACTIVE or INACTIVE"));
+
+        mockMvc.perform(get("/api/employees").param("status", "bogus"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void list_nonNumericPage_returns400() throws Exception {
         mockMvc.perform(get("/api/employees").param("page", "abc"))
                 .andExpect(status().isBadRequest());
     }
@@ -193,13 +245,14 @@ class EmpContTest {
 
     @Test
     void getById_found_returns200() throws Exception {
-        when(employeeService.getEmployeeById(1L))
-                .thenReturn(response(1L, "Amit Sharma", "amit@example.com", "IT", "50000"));
+        when(employeeService.getEmployeeById(1L)).thenReturn(amit());
 
         mockMvc.perform(get("/api/employees/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.email").value("amit@example.com"));
+                .andExpect(jsonPath("$.email").value("amit@example.com"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.version").value(0));
     }
 
     @Test
@@ -211,50 +264,172 @@ class EmpContTest {
                 .andExpect(jsonPath("$.message").value("Employee not found with id: 99"));
     }
 
-    // ---------- update (PUT) ----------
+    // ---------- update (PUT) and the version check ----------
 
     @Test
-    void update_validRequest_returns200() throws Exception {
-        when(employeeService.updateEmployee(eq(1L), any(EmployeeRequest.class)))
-                .thenReturn(response(1L, "Amit Sharma", "amit@example.com", "Finance", "65000"));
+    void update_validRequest_returns200WithIncreasedVersion() throws Exception {
+        when(employeeService.updateEmployee(eq(1L), any(EmployeeUpdateRequest.class)))
+                .thenReturn(response(1L, "Amit Sharma", "amit@example.com", "Finance", "65000",
+                        EmployeeStatus.ACTIVE, 1L));
 
         mockMvc.perform(put("/api/employees/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(VALID_JSON))
+                        .content(UPDATE_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.department").value("Finance"));
+                .andExpect(jsonPath("$.department").value("Finance"))
+                .andExpect(jsonPath("$.version").value(1));
+    }
+
+    @Test
+    void update_missingVersion_returns400() throws Exception {
+        String withoutVersion = UPDATE_JSON.replace(",\n  \"version\": 0", "");
+
+        mockMvc.perform(put("/api/employees/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(withoutVersion))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message.version").value("Version is required"));
+
+        verify(employeeService, never()).updateEmployee(any(), any());
+    }
+
+    @Test
+    void update_versionMismatch_returns409() throws Exception {
+        when(employeeService.updateEmployee(eq(1L), any(EmployeeUpdateRequest.class)))
+                .thenThrow(new VersionConflictException(1L, 0L, 3L));
+
+        mockMvc.perform(put("/api/employees/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(UPDATE_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value(
+                        "Employee 1 was changed by someone else: you sent version 0 but the current version is 3"));
     }
 
     @Test
     void update_notFound_returns404() throws Exception {
-        when(employeeService.updateEmployee(eq(99L), any(EmployeeRequest.class)))
+        when(employeeService.updateEmployee(eq(99L), any(EmployeeUpdateRequest.class)))
                 .thenThrow(new EmployeeNotFoundException(99L));
 
         mockMvc.perform(put("/api/employees/99")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(VALID_JSON))
+                        .content(UPDATE_JSON))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void update_duplicateEmail_returns409() throws Exception {
-        when(employeeService.updateEmployee(eq(1L), any(EmployeeRequest.class)))
+        when(employeeService.updateEmployee(eq(1L), any(EmployeeUpdateRequest.class)))
                 .thenThrow(new DuplicateEmailException("amit@example.com"));
 
         mockMvc.perform(put("/api/employees/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(VALID_JSON))
+                        .content(UPDATE_JSON))
                 .andExpect(status().isConflict());
     }
 
     @Test
-    void update_invalidBody_returns400() throws Exception {
-        String json = VALID_JSON.replace("50000", "-1");
+    void update_unknownDepartment_returns400() throws Exception {
+        when(employeeService.updateEmployee(eq(1L), any(EmployeeUpdateRequest.class)))
+                .thenThrow(new InvalidRequestException("Department 'Nope' does not exist"));
 
         mockMvc.perform(put("/api/employees/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(UPDATE_JSON.replace("Finance", "Nope")))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void update_invalidBody_returns400() throws Exception {
+        mockMvc.perform(put("/api/employees/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(UPDATE_JSON.replace("65000", "-1")))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ---------- status change (PATCH) ----------
+
+    @Test
+    void changeStatus_valid_returns200() throws Exception {
+        when(employeeService.updateStatus(eq(1L), any(StatusUpdateRequest.class)))
+                .thenReturn(response(1L, "Amit Sharma", "amit@example.com", "IT", "50000",
+                        EmployeeStatus.INACTIVE, 1L));
+
+        mockMvc.perform(patch("/api/employees/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"INACTIVE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INACTIVE"))
+                .andExpect(jsonPath("$.version").value(1));
+    }
+
+    @Test
+    void changeStatus_unknownStatus_returns400() throws Exception {
+        when(employeeService.updateStatus(eq(1L), any(StatusUpdateRequest.class)))
+                .thenThrow(new InvalidRequestException("status must be ACTIVE or INACTIVE"));
+
+        mockMvc.perform(patch("/api/employees/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"BOGUS\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("status must be ACTIVE or INACTIVE"));
+    }
+
+    @Test
+    void changeStatus_missingStatus_returns400() throws Exception {
+        mockMvc.perform(patch("/api/employees/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message.status").value("Status is required"));
+    }
+
+    @Test
+    void changeStatus_employeeNotFound_returns404() throws Exception {
+        when(employeeService.updateStatus(eq(99L), any(StatusUpdateRequest.class)))
+                .thenThrow(new EmployeeNotFoundException(99L));
+
+        mockMvc.perform(patch("/api/employees/99/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"INACTIVE\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    // ---------- history (GET) ----------
+
+    @Test
+    void history_returns200WithRowsNewestFirst() throws Exception {
+        LocalDateTime now = LocalDateTime.of(2024, 2, 1, 9, 0);
+        when(employeeService.getEmployeeHistory(1L)).thenReturn(List.of(
+                new EmployeeHistoryResponse(2L, 1L, "status", "ACTIVE", "INACTIVE", now),
+                new EmployeeHistoryResponse(1L, 1L, "salary", "50000.00", "55000.00", now.minusDays(1))));
+
+        mockMvc.perform(get("/api/employees/1/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].fieldName").value("status"))
+                .andExpect(jsonPath("$[0].oldValue").value("ACTIVE"))
+                .andExpect(jsonPath("$[0].newValue").value("INACTIVE"))
+                .andExpect(jsonPath("$[0].employeeId").value(1))
+                .andExpect(jsonPath("$[0].changedAt").exists())
+                .andExpect(jsonPath("$[1].fieldName").value("salary"));
+    }
+
+    @Test
+    void history_noChanges_returns200WithEmptyList() throws Exception {
+        when(employeeService.getEmployeeHistory(1L)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/employees/1/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void history_employeeNotFound_returns404() throws Exception {
+        when(employeeService.getEmployeeHistory(99L)).thenThrow(new EmployeeNotFoundException(99L));
+
+        mockMvc.perform(get("/api/employees/99/history"))
+                .andExpect(status().isNotFound());
     }
 
     // ---------- delete (DELETE) ----------
@@ -275,24 +450,22 @@ class EmpContTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ---------- department search (GET) ----------
+    // ---------- department search, name search, salary range ----------
 
     @Test
     void byDepartment_returns200() throws Exception {
-        when(employeeService.getEmployeesByDepartment("Finance"))
-                .thenReturn(List.of(response(2L, "Priya Kumari", "priya@example.com", "Finance", "75000")));
+        when(employeeService.getEmployeesByDepartment("Finance")).thenReturn(List.of(
+                response(2L, "Priya Kumari", "priya@example.com", "Finance", "75000", EmployeeStatus.ACTIVE, 0L)));
 
         mockMvc.perform(get("/api/employees/department/Finance"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].department").value("Finance"));
     }
 
-    // ---------- name search (GET) ----------
-
     @Test
     void searchByName_returns200() throws Exception {
-        when(employeeService.searchByName("priya"))
-                .thenReturn(List.of(response(2L, "Priya Kumari", "priya@example.com", "Finance", "75000")));
+        when(employeeService.searchByName("priya")).thenReturn(List.of(
+                response(2L, "Priya Kumari", "priya@example.com", "Finance", "75000", EmployeeStatus.ACTIVE, 0L)));
 
         mockMvc.perform(get("/api/employees/search").param("name", "priya"))
                 .andExpect(status().isOk())
@@ -314,12 +487,11 @@ class EmpContTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ---------- salary range (GET) ----------
-
     @Test
     void salaryRange_valid_returns200() throws Exception {
         when(employeeService.getEmployeesBySalaryRange(new BigDecimal("50000"), new BigDecimal("80000")))
-                .thenReturn(List.of(response(2L, "Priya Kumari", "priya@example.com", "Finance", "75000")));
+                .thenReturn(List.of(
+                        response(2L, "Priya Kumari", "priya@example.com", "Finance", "75000", EmployeeStatus.ACTIVE, 0L)));
 
         mockMvc.perform(get("/api/employees/salary").param("min", "50000").param("max", "80000"))
                 .andExpect(status().isOk())
@@ -348,19 +520,127 @@ class EmpContTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // ---------- combined filter (GET) ----------
+
+    @Test
+    void filter_noParameters_returns200WithPageDetails() throws Exception {
+        when(employeeService.filterEmployees(any(EmployeeFilterRequest.class), eq(0), eq(10), eq("fullName"), eq("asc")))
+                .thenReturn(new PageResponse<>(List.of(amit()), 0, 10, 1, 1));
+
+        mockMvc.perform(get("/api/employees/filter"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].fullName").value("Amit Sharma"))
+                .andExpect(jsonPath("$.totalRecords").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+    }
+
+    @Test
+    void filter_allParameters_areBoundToTheFilterRequest() throws Exception {
+        EmployeeFilterRequest expected = new EmployeeFilterRequest("ami", "it",
+                new BigDecimal("40000"), new BigDecimal("60000"),
+                LocalDate.of(2023, 1, 1), LocalDate.of(2024, 12, 31));
+        when(employeeService.filterEmployees(eq(expected), eq(1), eq(5), eq("salary"), eq("desc")))
+                .thenReturn(new PageResponse<>(List.of(amit()), 1, 5, 6, 2));
+
+        mockMvc.perform(get("/api/employees/filter")
+                        .param("name", "ami")
+                        .param("department", "it")
+                        .param("minSalary", "40000")
+                        .param("maxSalary", "60000")
+                        .param("joinedFrom", "2023-01-01")
+                        .param("joinedTo", "2024-12-31")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .param("sortBy", "salary")
+                        .param("direction", "desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentPage").value(1))
+                .andExpect(jsonPath("$.totalRecords").value(6))
+                .andExpect(jsonPath("$.totalPages").value(2));
+    }
+
+    @Test
+    void filter_invalidSalaryRange_returns400() throws Exception {
+        when(employeeService.filterEmployees(any(EmployeeFilterRequest.class), anyInt(), anyInt(), anyString(), anyString()))
+                .thenThrow(new InvalidRequestException("minSalary must not be greater than maxSalary"));
+
+        mockMvc.perform(get("/api/employees/filter").param("minSalary", "90000").param("maxSalary", "50000"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("minSalary must not be greater than maxSalary"));
+    }
+
+    @Test
+    void filter_joinedFromAfterJoinedTo_returns400() throws Exception {
+        when(employeeService.filterEmployees(any(EmployeeFilterRequest.class), anyInt(), anyInt(), anyString(), anyString()))
+                .thenThrow(new InvalidRequestException("joinedFrom must not be after joinedTo"));
+
+        mockMvc.perform(get("/api/employees/filter")
+                        .param("joinedFrom", "2024-12-01").param("joinedTo", "2024-01-01"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void filter_badDateFormat_returns400() throws Exception {
+        mockMvc.perform(get("/api/employees/filter").param("joinedFrom", "15-01-2024"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void filter_nonNumericSalary_returns400() throws Exception {
+        mockMvc.perform(get("/api/employees/filter").param("minSalary", "abc"))
+                .andExpect(status().isBadRequest());
+    }
+
     // ---------- department summary (GET) ----------
 
     @Test
     void summary_returns200() throws Exception {
-        when(employeeService.getDepartmentSummary())
-                .thenReturn(List.of(
-                        new DepartmentSummaryResponse("Finance", 2L, 70000.0),
-                        new DepartmentSummaryResponse("IT", 3L, 55000.5)));
+        when(employeeService.getDepartmentSummary()).thenReturn(List.of(
+                new DepartmentSummaryResponse("Finance", 2L, 70000.0),
+                new DepartmentSummaryResponse("IT", 3L, 55000.5)));
 
         mockMvc.perform(get("/api/employees/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].department").value("Finance"))
                 .andExpect(jsonPath("$[0].employeeCount").value(2))
                 .andExpect(jsonPath("$[1].averageSalary").value(55000.5));
+    }
+
+    // ---------- CSV export (GET) ----------
+
+    private static final String CSV_HEADER =
+            "id,fullName,email,department,salary,joiningDate,status,createdAt,updatedAt\n";
+
+    @Test
+    void export_returnsCsvWithTheCsvContentType() throws Exception {
+        String csv = CSV_HEADER
+                + "1,Amit Sharma,amit@example.com,IT,50000,2024-01-15,ACTIVE,2024-01-01T10:00,2024-01-01T10:00\n";
+        when(employeeService.exportEmployeesCsv(null, null)).thenReturn(csv);
+
+        mockMvc.perform(get("/api/employees/export"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "text/csv"))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"employees.csv\""))
+                .andExpect(content().string(csv));
+    }
+
+    @Test
+    void export_withDepartmentAndStatus_passesThemToTheService() throws Exception {
+        when(employeeService.exportEmployeesCsv("IT", "ACTIVE")).thenReturn(CSV_HEADER);
+
+        mockMvc.perform(get("/api/employees/export").param("department", "IT").param("status", "ACTIVE"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(CSV_HEADER));
+
+        verify(employeeService).exportEmployeesCsv("IT", "ACTIVE");
+    }
+
+    @Test
+    void export_unknownStatus_returns400() throws Exception {
+        when(employeeService.exportEmployeesCsv(null, "bogus"))
+                .thenThrow(new InvalidRequestException("status must be ACTIVE or INACTIVE"));
+
+        mockMvc.perform(get("/api/employees/export").param("status", "bogus"))
+                .andExpect(status().isBadRequest());
     }
 }
