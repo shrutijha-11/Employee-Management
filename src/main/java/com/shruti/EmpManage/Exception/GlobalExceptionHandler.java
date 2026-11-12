@@ -70,6 +70,7 @@ public class GlobalExceptionHandler {
                 "The employee was changed by another request. Reload it and try again.");
     }
 
+    @ExceptionHandler(DuplicateDepartmentException.class)
     public ResponseEntity<Map<String, Object>> handleDuplicateDepartment(DuplicateDepartmentException ex) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
