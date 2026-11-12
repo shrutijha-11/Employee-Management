@@ -16,10 +16,11 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-        @ExceptionHandler(EmployeeNotFoundException.class)
-        public ResponseEntity<Map<String, Object>> handleNotFound(EmployeeNotFoundException ex) {
-            return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
-        }
+
+    @ExceptionHandler(EmployeeNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(EmployeeNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
 
         @ExceptionHandler(DuplicateEmailException.class)
         public ResponseEntity<Map<String, Object>> handleDuplicateEmail(DuplicateEmailException ex) {
