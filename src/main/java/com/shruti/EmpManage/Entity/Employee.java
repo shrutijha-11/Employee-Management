@@ -2,7 +2,8 @@ package com.shruti.EmpManage.Entity;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
-
+import jakarta.validation.constraints.Pattern.*;
+import jakarta.validation.constraints.Size.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -46,6 +47,23 @@ public class Employee {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EmployeeStatus status = EmployeeStatus.ACTIVE;
+
+    @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "[0-9]{10}", message = "Phone number must be exactly 10 digits")
+    @Column(nullable = false, unique = true, length = 10)
+    private String phoneNumber;
+
+    @NotBlank(message = "Address is required")
+    @Size(max = 255, message = "Address must be at most 255 characters")
+    @Column(nullable = false)
+    private String address;
+
+    @ManyToOne
+    @JoinColumn(name = "manager_id")
+    private Employee manager;
+
+    public Employee getManager() { return manager; }
+    public void setManager(Employee manager) { this.manager = manager; }
 
     @Version
     private Long version;
@@ -124,6 +142,24 @@ public class Employee {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
     // JPA needs a no-argument constructor

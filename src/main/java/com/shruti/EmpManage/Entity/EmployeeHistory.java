@@ -18,10 +18,10 @@ public class EmployeeHistory {
     @Column(nullable = false)
     private String fieldName;
 
-    @Column(nullable = false)
+    @Column
     private String oldValue;
 
-    @Column(nullable = false)
+    @Column
     private String newValue;
 
     @Column(nullable = false)

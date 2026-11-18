@@ -75,7 +75,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleDuplicateDepartment(DuplicateDepartmentException ex) {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
-        private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, Object message) {
+    @ExceptionHandler(DuplicatePhoneException.class)
+    public ResponseEntity<Map<String, Object>> handleDuplicatePhone(DuplicatePhoneException ex) {
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+    @ExceptionHandler(EmployeeIsManagerException.class)
+    public ResponseEntity<Map<String, Object>> handleEmployeeIsManager(EmployeeIsManagerException ex) {
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+    private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, Object message) {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("timestamp", LocalDateTime.now());
             body.put("status", status.value());

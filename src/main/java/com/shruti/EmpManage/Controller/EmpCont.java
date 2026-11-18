@@ -1,18 +1,13 @@
 package com.shruti.EmpManage.Controller;
 
-import com.shruti.EmpManage.Dto.DepartmentSummaryResponse;
-import com.shruti.EmpManage.Dto.EmployeeFilterRequest;
-import com.shruti.EmpManage.Dto.EmployeeHistoryResponse;
-import com.shruti.EmpManage.Dto.EmployeeRequest;
-import com.shruti.EmpManage.Dto.EmployeeResponse;
-import com.shruti.EmpManage.Dto.EmployeeUpdateRequest;
-import com.shruti.EmpManage.Dto.PageResponse;
-import com.shruti.EmpManage.Dto.StatusUpdateRequest;
+import com.shruti.EmpManage.Dto.*;
 import com.shruti.EmpManage.Service.EmployeeService;
+import com.shruti.EmpManage.Dto.JoiningMonthReportResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
@@ -41,8 +36,9 @@ public class EmpCont {
     @Operation(summary = "Create an employee",
             description = "The department is sent by name and must already exist. New employees are ACTIVE with version 0.")
     @ApiResponse(responseCode = "201", description = "Employee created")
-    @ApiResponse(responseCode = "400", description = "Validation failed or department does not exist")
-    @ApiResponse(responseCode = "409", description = "Email already exists")
+    @ApiResponse(responseCode = "400", description = "Validation failed or department does not exist ,phone number not exactly 10 digit")
+    @ApiResponse(responseCode = "409", description = "Email or phone number already exists")
+    @ApiResponse(responseCode = "404", description = "Employee not found")
     @PostMapping
     public ResponseEntity<EmployeeResponse> createEmployee(@Valid @RequestBody EmployeeRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(employeeService.createEmployee(request));
@@ -82,9 +78,9 @@ public class EmpCont {
             description = "The request must include the employee's current version. "
                     + "If it does not match the saved version, nothing is changed and 409 is returned.")
     @ApiResponse(responseCode = "200", description = "Employee updated; version increased by 1")
-    @ApiResponse(responseCode = "400", description = "Validation failed, version missing, or department does not exist")
-    @ApiResponse(responseCode = "404", description = "Employee not found")
-    @ApiResponse(responseCode = "409", description = "Version mismatch, or email belongs to another employee")
+    @ApiResponse(responseCode = "400", description = "Validation failed, version missing,phone number not exactly 10 digit or department does not exist,employee cannot be their own Manager")
+    @ApiResponse(responseCode = "404", description = "Employee not found,Manager not found")
+    @ApiResponse(responseCode = "409", description = "Version mismatch, or email or phone number belongs to another employee")
     @PutMapping("/{id}")
     public ResponseEntity<EmployeeResponse> updateEmployee(@PathVariable Long id,
                                                            @Valid @RequestBody EmployeeUpdateRequest request) {
@@ -102,11 +98,25 @@ public class EmpCont {
         return ResponseEntity.ok(employeeService.updateStatus(id, request));
     }
 
+    @Operation(summary = "Change the status of several employees at once",
+            description = "Sets one status on every listed employee. All-or-nothing: if the request is invalid "
+                    + "or any id does not exist, nothing is changed. Employees already in that status are left "
+                    + "untouched (same version, no history row). Employees that do change get a new version, "
+                    + "a new updated time and one status history row.")
+    @ApiResponse(responseCode = "200", description = "Employees in the request, in the order sent")
+    @ApiResponse(responseCode = "400", description = "Unknown or missing status, empty id list, or repeated id")
+    @ApiResponse(responseCode = "404", description = "At least one id does not exist; nothing was changed")
+    @PatchMapping("/bulk-status")
+    public ResponseEntity<List<EmployeeResponse>> bulkUpdateStatus(@Valid @RequestBody BulkStatusRequest request) {
+        return ResponseEntity.ok(employeeService.bulkUpdateStatus(request));
+    }
+
     // ---------- delete ----------
 
     @Operation(summary = "Delete an employee")
     @ApiResponse(responseCode = "204", description = "Employee deleted")
     @ApiResponse(responseCode = "404", description = "Employee not found")
+    @ApiResponse(responseCode = "409", description = "Employee still manages other employees")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteEmployee(@PathVariable Long id) {
         employeeService.deleteEmployee(id);
@@ -123,6 +133,19 @@ public class EmpCont {
     public ResponseEntity<List<EmployeeHistoryResponse>> getEmployeeHistory(@PathVariable Long id) {
         return ResponseEntity.ok(employeeService.getEmployeeHistory(id));
     }
+    @Operation(summary = "Get an employee's change history, page by page",
+            description = "Newest first. Page numbers start at 0; size is the number of rows per page.")
+    @ApiResponse(responseCode = "200", description = "Page of history rows (empty content if there are none)")
+    @ApiResponse(responseCode = "400", description = "page is negative or size is below 1")
+    @ApiResponse(responseCode = "404", description = "Employee not found")
+    @GetMapping("/{id}/history/paged")
+    public ResponseEntity<PageResponse<EmployeeHistoryResponse>> getEmployeeHistoryPaged(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(employeeService.getEmployeeHistoryPage(id, page, size));
+    }
+
 
     // ---------- searches ----------
 
@@ -186,6 +209,28 @@ public class EmpCont {
     @GetMapping("/summary")
     public ResponseEntity<List<DepartmentSummaryResponse>> getDepartmentSummary() {
         return ResponseEntity.ok(employeeService.getDepartmentSummary());
+    }
+
+    @Operation(summary = "Company dashboard",
+            description = "Total, active and inactive employees, the average salary, and the department with "
+                    + "the most employees (alphabetical on a tie). With no employees the counts and the "
+                    + "average are 0 and topDepartment is null.")
+    @ApiResponse(responseCode = "200", description = "Company summary")
+    @GetMapping("/dashboard")
+    public ResponseEntity<DashboardResponse> getDashboard() {
+        return ResponseEntity.ok(employeeService.getDashboard());
+    }
+
+    @Operation(summary = "Employees who joined in one month",
+            description = "Both year and month are required. Newest joining date first, with the number "
+                    + "of employees who joined in that month.")
+    @ApiResponse(responseCode = "200", description = "Matching employees and the count (empty list and 0 if nobody joined)")
+    @ApiResponse(responseCode = "400", description = "year or month missing or not a number, month outside 1 to 12, or year out of range")
+    @GetMapping("/joining-report")
+    public ResponseEntity<JoiningMonthReportResponse> getJoiningMonthReport(
+            @Parameter(description = "Year, for example 2026", required = true) @RequestParam(required = false) Integer year,
+            @Parameter(description = "Month from 1 to 12", required = true) @RequestParam(required = false) Integer month) {
+        return ResponseEntity.ok(employeeService.getJoiningMonthReport(year, month));
     }
 
     // ---------- CSV export ----------

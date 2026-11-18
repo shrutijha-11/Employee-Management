@@ -88,8 +88,11 @@ class EmployeeRepoTest {
         LocalDateTime now = LocalDateTime.now();
         e.setCreatedAt(now);
         e.setUpdatedAt(now);
+        e.setPhoneNumber(String.format("%010d", PHONE_COUNTER.incrementAndGet()));
+        e.setAddress("12 Park Street");
         return employeeRepo.save(e);
     }
+    private static final java.util.concurrent.atomic.AtomicLong PHONE_COUNTER = new java.util.concurrent.atomic.AtomicLong(9000000000L);
 
     // ---------- email checks ----------
 
@@ -123,6 +126,8 @@ class EmployeeRepoTest {
         duplicate.setJoiningDate(LocalDate.of(2024, 1, 15));
         duplicate.setCreatedAt(LocalDateTime.now());
         duplicate.setUpdatedAt(LocalDateTime.now());
+        duplicate.setPhoneNumber("9000000555");
+        duplicate.setAddress("12 Park Street");
 
         assertThrows(DataIntegrityViolationException.class,
                 () -> employeeRepo.saveAndFlush(duplicate));

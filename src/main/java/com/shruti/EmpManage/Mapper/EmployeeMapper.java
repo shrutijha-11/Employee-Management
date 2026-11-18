@@ -17,6 +17,8 @@ public class EmployeeMapper {
         employee.setEmail(request.email());
         employee.setSalary(request.salary());
         employee.setJoiningDate(request.joiningDate());
+        employee.setPhoneNumber(request.phoneNumber());
+        employee.setAddress(request.address());
         return employee;
     }
 
@@ -25,6 +27,8 @@ public class EmployeeMapper {
         employee.setEmail(request.email());
         employee.setSalary(request.salary());
         employee.setJoiningDate(request.joiningDate());
+        employee.setPhoneNumber(request.phoneNumber());
+        employee.setAddress(request.address());
     }
 
     public static EmployeeResponse toResponse(Employee employee) {
@@ -38,7 +42,11 @@ public class EmployeeMapper {
                 employee.getStatus(),
                 employee.getVersion(),
                 employee.getCreatedAt(),
-                employee.getUpdatedAt()
+                employee.getUpdatedAt(),
+                employee.getPhoneNumber(),
+                employee.getAddress(),
+                employee.getManager() == null ? null : employee.getManager().getId(),
+                employee.getManager() == null ? null : employee.getManager().getFullName()
         );
     }
 }

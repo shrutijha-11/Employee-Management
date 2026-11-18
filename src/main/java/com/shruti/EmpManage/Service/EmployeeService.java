@@ -1,21 +1,11 @@
 package com.shruti.EmpManage.Service;
 
-import com.shruti.EmpManage.Dto.DepartmentSummaryResponse;
-import com.shruti.EmpManage.Dto.EmployeeFilterRequest;
-import com.shruti.EmpManage.Dto.EmployeeHistoryResponse;
-import com.shruti.EmpManage.Dto.EmployeeRequest;
-import com.shruti.EmpManage.Dto.EmployeeResponse;
-import com.shruti.EmpManage.Dto.EmployeeUpdateRequest;
-import com.shruti.EmpManage.Dto.PageResponse;
-import com.shruti.EmpManage.Dto.StatusUpdateRequest;
+import com.shruti.EmpManage.Dto.*;
 import com.shruti.EmpManage.Entity.Department;
 import com.shruti.EmpManage.Entity.Employee;
 import com.shruti.EmpManage.Entity.EmployeeHistory;
 import com.shruti.EmpManage.Entity.EmployeeStatus;
-import com.shruti.EmpManage.Exception.DuplicateEmailException;
-import com.shruti.EmpManage.Exception.EmployeeNotFoundException;
-import com.shruti.EmpManage.Exception.InvalidRequestException;
-import com.shruti.EmpManage.Exception.VersionConflictException;
+import com.shruti.EmpManage.Exception.*;
 import com.shruti.EmpManage.Mapper.EmployeeHistoryMapper;
 import com.shruti.EmpManage.Mapper.EmployeeMapper;
 import com.shruti.EmpManage.Repository.DepartmentRepo;
@@ -30,13 +20,16 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.shruti.EmpManage.Dto.DashboardResponse;
+import com.shruti.EmpManage.Dto.DepartmentSummaryResponse;
+import com.shruti.EmpManage.Dto.TopDepartmentResponse;
+import com.shruti.EmpManage.Dto.JoiningMonthReportResponse;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.time.YearMonth;
+import java.util.*;
 
 @Service
 public class EmployeeService {
@@ -62,10 +55,16 @@ public class EmployeeService {
         if (employeeRepository.existsByEmail(request.email())) {
             throw new DuplicateEmailException(request.email());
         }
+        if (employeeRepository.existsByPhoneNumber(request.phoneNumber())) {
+            throw new DuplicatePhoneException(request.phoneNumber());
+        }
         Department department = findDepartmentByNameOrThrow(request.department());
+
+        Employee manager = resolveManager(request.managerId(), null);
 
         Employee employee = EmployeeMapper.toEntity(request);
         employee.setDepartment(department);
+        employee.setManager(manager);
         employee.setStatus(EmployeeStatus.ACTIVE);
         LocalDateTime now = LocalDateTime.now();
         employee.setCreatedAt(now);
@@ -134,7 +133,11 @@ public class EmployeeService {
         if (employeeRepository.existsByEmailAndIdNot(request.email(), id)) {
             throw new DuplicateEmailException(request.email());
         }
+        if (employeeRepository.existsByPhoneNumberAndIdNot(request.phoneNumber(), id)) {
+            throw new DuplicatePhoneException(request.phoneNumber());
+        }
         Department department = findDepartmentByNameOrThrow(request.department());
+        Employee manager = resolveManager(request.managerId(), id);
 
         // compare old and new values BEFORE changing the entity
         LocalDateTime now = LocalDateTime.now();
@@ -145,10 +148,13 @@ public class EmployeeService {
         addChange(changes, id, "salary", formatSalary(existing.getSalary()), formatSalary(request.salary()), now);
         addChange(changes, id, "joiningDate", existing.getJoiningDate().toString(),
                 request.joiningDate().toString(), now);
-
+        addChange(changes, id, "phoneNumber", existing.getPhoneNumber(), request.phoneNumber(), now);
+        addChange(changes, id, "address", existing.getAddress(), request.address(), now);
+        addChange(changes, id, "managerId", managerIdText(existing.getManager()), managerIdText(manager), now);
         EmployeeMapper.updateEntity(existing, request);
         existing.setDepartment(department);
         existing.setUpdatedAt(now);
+        existing.setManager(manager);
 
         // saveAndFlush so the version is increased before we build the response
         Employee saved = employeeRepository.saveAndFlush(existing);
@@ -173,6 +179,50 @@ public class EmployeeService {
         return EmployeeMapper.toResponse(saved);
     }
 
+    @Transactional
+    public List<EmployeeResponse> bulkUpdateStatus(BulkStatusRequest request) {
+        // 1. every check that returns 400 comes first
+        EmployeeStatus newStatus = parseStatus(request.status());
+        List<Long> ids = request.ids();
+        if (new HashSet<>(ids).size() != ids.size()) {
+            throw new InvalidRequestException("ids must not contain repeated values");
+        }
+
+        // 2. every id must exist, otherwise 404 and nothing changes
+        Map<Long, Employee> byId = new HashMap<>();
+        for (Employee employee : employeeRepository.findAllById(ids)) {
+            byId.put(employee.getId(), employee);
+        }
+        for (Long id : ids) {
+            if (!byId.containsKey(id)) {
+                throw new EmployeeNotFoundException(id);
+            }
+        }
+
+        // 3. only now change anything, and only the employees whose status really differs
+        LocalDateTime now = LocalDateTime.now();
+        List<Employee> changed = new ArrayList<>();
+        List<EmployeeHistory> changes = new ArrayList<>();
+        for (Long id : ids) {
+            Employee employee = byId.get(id);
+            if (employee.getStatus() == newStatus) {
+                continue;
+            }
+            addChange(changes, id, "status", employee.getStatus().name(), newStatus.name(), now);
+            employee.setStatus(newStatus);
+            employee.setUpdatedAt(now);
+            changed.add(employee);
+        }
+
+        // flush so the new versions are set before the response is built
+        employeeRepository.saveAllAndFlush(changed);
+        historyRepository.saveAll(changes);
+
+        return ids.stream()
+                .map(id -> EmployeeMapper.toResponse(byId.get(id)))
+                .toList();
+    }
+
     public List<EmployeeHistoryResponse> getEmployeeHistory(Long id) {
         findEmployeeOrThrow(id);   // 404 if the employee does not exist
         return historyRepository.findByEmployeeIdOrderByChangedAtDescIdAsc(id).stream()
@@ -180,10 +230,74 @@ public class EmployeeService {
                 .toList();
     }
 
+    public PageResponse<EmployeeHistoryResponse> getEmployeeHistoryPage(Long id, int page, int size) {
+        findEmployeeOrThrow(id);
+        if (page < 0) {
+            throw new InvalidRequestException("page must be 0 or greater");
+        }
+        if (size < 1) {
+            throw new InvalidRequestException("size must be at least 1");
+        }
+        Page<EmployeeHistory> result = historyRepository
+                .findByEmployeeIdOrderByChangedAtDescIdAsc(id, PageRequest.of(page, size));
+        return new PageResponse<>(
+                result.getContent().stream().map(EmployeeHistoryMapper::toResponse).toList(),
+                result.getNumber(),
+                result.getSize(),
+                result.getTotalElements(),
+                result.getTotalPages());
+    }
+
+    @Transactional(readOnly = true)
+    public DashboardResponse getDashboard() {
+        long total = employeeRepository.count();
+        long active = employeeRepository.countByStatus(EmployeeStatus.ACTIVE);
+        long inactive = employeeRepository.countByStatus(EmployeeStatus.INACTIVE);
+
+        Double average = employeeRepository.findAverageSalary();
+        double averageSalary = average == null ? 0.0 : Math.round(average * 100.0) / 100.0;
+
+        // most employees first; on a tie, the department name in alphabetical order
+        TopDepartmentResponse top = employeeRepository.getDepartmentSummary().stream()
+                .sorted(Comparator.comparing(DepartmentSummaryResponse::employeeCount).reversed()
+                        .thenComparing(DepartmentSummaryResponse::department))
+                .findFirst()
+                .map(d -> new TopDepartmentResponse(d.department(), d.employeeCount()))
+                .orElse(null);
+
+        return new DashboardResponse(total, active, inactive, averageSalary, top);
+    }
+
+    @Transactional(readOnly = true)
+    public JoiningMonthReportResponse getJoiningMonthReport(Integer year, Integer month) {
+        if (year == null || month == null) {
+            throw new InvalidRequestException("year and month are required");
+        }
+        if (month < 1 || month > 12) {
+            throw new InvalidRequestException("month must be between 1 and 12");
+        }
+        if (year < 1 || year > 9999) {
+            throw new InvalidRequestException("year must be between 1 and 9999");
+        }
+
+        YearMonth yearMonth = YearMonth.of(year, month);
+        List<EmployeeResponse> employees = employeeRepository
+                .findByJoiningDateBetweenOrderByJoiningDateDescIdAsc(yearMonth.atDay(1), yearMonth.atEndOfMonth())
+                .stream()
+                .map(EmployeeMapper::toResponse)
+                .toList();
+
+        return new JoiningMonthReportResponse(year, month, (long) employees.size(), employees);
+    }
+
     // ---------- delete ----------
 
     public void deleteEmployee(Long id) {
-        employeeRepository.delete(findEmployeeOrThrow(id));
+        Employee existing = findEmployeeOrThrow(id);
+        if (employeeRepository.existsByManagerId(id)) {
+            throw new EmployeeIsManagerException(id);
+        }
+        employeeRepository.delete(existing);
     }
 
     // ---------- simple searches ----------
@@ -239,8 +353,8 @@ public class EmployeeService {
 
         List<Employee> employees = employeeRepository.findAll(spec, Sort.by("id"));
 
-        StringBuilder csv = new StringBuilder(
-                "id,fullName,email,department,salary,joiningDate,status,createdAt,updatedAt\n");
+        StringBuilder csv = new StringBuilder("id,fullName,email,department,salary,joiningDate,status,createdAt,updatedAt,phoneNumber,address\n");
+
         for (Employee e : employees) {
             csv.append(String.join(",",
                             String.valueOf(e.getId()),
@@ -251,7 +365,9 @@ public class EmployeeService {
                             e.getJoiningDate().toString(),
                             e.getStatus().name(),
                             e.getCreatedAt().toString(),
-                            e.getUpdatedAt().toString()))
+                            e.getUpdatedAt().toString(),
+                            csvText(e.getPhoneNumber()),
+                            csvText(e.getAddress())))
                     .append("\n");
         }
         return csv.toString();
@@ -348,5 +464,19 @@ public class EmployeeService {
         } catch (IllegalArgumentException e) {
             throw new InvalidRequestException("status must be ACTIVE or INACTIVE");
         }
+    }
+    private Employee resolveManager(Long managerId, Long employeeId) {
+        if (managerId == null) {
+            return null;
+        }
+        if (managerId.equals(employeeId)) {
+            throw new InvalidRequestException("An employee cannot be their own manager");
+        }
+        return employeeRepository.findById(managerId)
+                .orElseThrow(() -> new EmployeeNotFoundException(managerId));
+    }
+
+    private String managerIdText(Employee manager) {
+        return manager == null ? null : String.valueOf(manager.getId());
     }
 }

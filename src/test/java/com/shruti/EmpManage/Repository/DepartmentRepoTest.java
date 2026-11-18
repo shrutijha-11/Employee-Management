@@ -24,6 +24,9 @@ class DepartmentRepoTest {
     @Autowired
     private EmployeeRepo employeeRepo;
 
+    @Autowired
+    private jakarta.persistence.EntityManager entityManager;
+
     private Department it;
     private Department finance;
 
@@ -51,6 +54,8 @@ class DepartmentRepoTest {
         e.setJoiningDate(LocalDate.of(2024, 1, 15));
         e.setCreatedAt(LocalDateTime.now());
         e.setUpdatedAt(LocalDateTime.now());
+        e.setPhoneNumber("9000000099");
+        e.setAddress("12 Park Street");
         employeeRepo.saveAndFlush(e);
     }
 
@@ -132,8 +137,11 @@ class DepartmentRepoTest {
     @Test
     void delete_departmentWithEmployees_isBlockedByTheDatabase() {
         addEmployeeTo(it);
+        departmentRepo.flush();   // write the employee to the database
+        entityManager.clear();    // forget the loaded objects
 
-        departmentRepo.delete(it);
+        Department reloaded = departmentRepo.findById(it.getId()).orElseThrow();
+        departmentRepo.delete(reloaded);
 
         // the foreign key from employees stops the delete, even without the service's own check
         assertThrows(DataIntegrityViolationException.class, () -> departmentRepo.flush());

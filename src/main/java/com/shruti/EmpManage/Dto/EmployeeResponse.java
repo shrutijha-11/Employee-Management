@@ -16,6 +16,10 @@ public record EmployeeResponse(
         EmployeeStatus status,
         Long version,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        String phoneNumber,
+        String address,
+        Long managerId,
+        String managerName
 ) {
 }

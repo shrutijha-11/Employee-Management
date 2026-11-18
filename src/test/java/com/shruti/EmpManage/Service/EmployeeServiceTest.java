@@ -81,19 +81,23 @@ class EmployeeServiceTest {
         e.setStatus(EmployeeStatus.ACTIVE);
         e.setCreatedAt(LocalDateTime.of(2024, 1, 1, 10, 0));
         e.setUpdatedAt(LocalDateTime.of(2024, 1, 1, 10, 0));
+        e.setPhoneNumber("9876543210");
+        e.setAddress("12 Park Street");
         ReflectionTestUtils.setField(e, "version", 0L);   // version has no setter; Hibernate manages it
         return e;
     }
 
     private EmployeeRequest createRequest(String email, String dept) {
         return new EmployeeRequest("Amit Sharma", email, dept,
-                new BigDecimal("50000"), LocalDate.of(2024, 1, 15));
+                new BigDecimal("50000"), LocalDate.of(2024, 1, 15),
+                "9876543210", "12 Park Street", null);
     }
 
     private EmployeeUpdateRequest updateRequest(String name, String email, String dept,
                                                 String salary, Long version) {
         return new EmployeeUpdateRequest(name, email, dept, new BigDecimal(salary),
-                LocalDate.of(2024, 1, 15), version);
+                LocalDate.of(2024, 1, 15),
+                "9876543210", "12 Park Street", null, version);
     }
 
     private List<EmployeeHistory> savedHistory() {

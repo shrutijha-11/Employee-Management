@@ -37,8 +37,7 @@ import static org.mockito.Mockito.*;
 class EmployeeFilterExportServiceTest {
 
     private static final String CSV_HEADER =
-            "id,fullName,email,department,salary,joiningDate,status,createdAt,updatedAt";
-
+            "id,fullName,email,department,salary,joiningDate,status,createdAt,updatedAt,phoneNumber,address";
     @Mock
     private EmployeeRepo employeeRepo;
 
@@ -54,6 +53,10 @@ class EmployeeFilterExportServiceTest {
     // ---------- helpers ----------
 
     private Employee employee(Long id, String name, String email, String deptName, String salary) {
+        return employee(id, name, email, deptName, salary, "9000000001");
+    }
+
+    private Employee employee(Long id, String name, String email, String deptName, String salary, String phone) {
         Department d = new Department();
         d.setId(1L);
         d.setName(deptName);
@@ -69,6 +72,8 @@ class EmployeeFilterExportServiceTest {
         e.setStatus(EmployeeStatus.ACTIVE);
         e.setCreatedAt(LocalDateTime.of(2024, 1, 1, 10, 0));
         e.setUpdatedAt(LocalDateTime.of(2024, 1, 1, 10, 0));
+        e.setPhoneNumber(phone);
+        e.setAddress("12 Park Street");
         ReflectionTestUtils.setField(e, "version", 0L);
         return e;
     }
@@ -205,16 +210,16 @@ class EmployeeFilterExportServiceTest {
     @Test
     void export_writesHeaderThenOneRowPerEmployeeInTheRequiredColumnOrder() {
         stubExportQuery(List.of(
-                employee(1L, "Amit Sharma", "amit@example.com", "IT", "50000"),
-                employee(2L, "Priya Kumari", "priya@example.com", "Finance", "75000")));
+                employee(1L, "Amit Sharma", "amit@example.com", "IT", "50000","9000000555"),
+                employee(2L, "Priya Kumari", "priya@example.com", "Finance", "75000","9000000666")));
 
         String[] lines = employeeService.exportEmployeesCsv(null, null).split("\n");
 
         assertEquals(3, lines.length);
         assertEquals(CSV_HEADER, lines[0]);
-        assertEquals("1,Amit Sharma,amit@example.com,IT,50000,2024-01-15,ACTIVE,2024-01-01T10:00,2024-01-01T10:00",
+        assertEquals("1,Amit Sharma,amit@example.com,IT,50000,2024-01-15,ACTIVE,2024-01-01T10:00,2024-01-01T10:00,9000000555,12 Park Street",
                 lines[1]);
-        assertEquals("2,Priya Kumari,priya@example.com,Finance,75000,2024-01-15,ACTIVE,2024-01-01T10:00,2024-01-01T10:00",
+        assertEquals("2,Priya Kumari,priya@example.com,Finance,75000,2024-01-15,ACTIVE,2024-01-01T10:00,2024-01-01T10:00,9000000666,12 Park Street",
                 lines[2]);
     }
 

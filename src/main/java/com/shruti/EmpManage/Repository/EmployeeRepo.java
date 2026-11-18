@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @Repository
@@ -22,11 +23,19 @@ public interface EmployeeRepo extends JpaRepository<Employee, Long>, JpaSpecific
 
     boolean existsByDepartmentId(Long departmentId);
 
+    boolean existsByPhoneNumber(String phoneNumber);
+
+    boolean existsByManagerId(Long managerId);
+
+    boolean existsByPhoneNumberAndIdNot(String phoneNumber, Long id);
+
     List<Employee> findByDepartmentNameIgnoreCase(String departmentName);
 
     List<Employee> findByFullNameContainingIgnoreCase(String name);
 
     List<Employee> findBySalaryBetween(BigDecimal min, BigDecimal max);
+
+    List<Employee> findByJoiningDateBetweenOrderByJoiningDateDescIdAsc(LocalDate start, LocalDate end);
 
     Page<Employee> findByStatus(EmployeeStatus status, Pageable pageable);
 
@@ -38,4 +47,8 @@ public interface EmployeeRepo extends JpaRepository<Employee, Long>, JpaSpecific
             ORDER BY d.name
             """)
     List<DepartmentSummaryResponse> getDepartmentSummary();
+    long countByStatus(EmployeeStatus status);
+
+    @Query("SELECT AVG(e.salary) FROM Employee e")
+    Double findAverageSalary();
 }

@@ -1,9 +1,7 @@
 package com.shruti.EmpManage.Dto;
 
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -24,6 +22,18 @@ public record EmployeeRequest(
     BigDecimal salary,
 
     @NotNull(message = "Joining date is required")
-    LocalDate joiningDate
+    LocalDate joiningDate,
+
+    @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "[0-9]{10}", message = "Phone number must be exactly 10 digits")
+            String phoneNumber,
+    @Schema(description = "Exactly 10 digits", example = "9876543210")
+
+    @NotBlank(message = "Address is required")
+    @Size(max = 255, message = "Address must be at most 255 characters")
+    String address,
+
+    @Schema(description = "Id of this employee's manager. Leave empty for no manager.", example = "3")
+            Long managerId
 ) {
 }

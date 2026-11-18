@@ -57,7 +57,9 @@ class EmpContTest {
               "email": "amit@example.com",
               "department": "IT",
               "salary": 50000,
-              "joiningDate": "2024-01-15"
+              "joiningDate": "2024-01-15",
+              "phoneNumber": "9876543210",
+              "address": "12 Park Street"
             }
             """;
 
@@ -68,7 +70,9 @@ class EmpContTest {
               "department": "Finance",
               "salary": 65000,
               "joiningDate": "2024-01-15",
-              "version": 0
+              "version": 0,
+              "phoneNumber": "9876543210",
+              "address": "12 Park Street"
             }
             """;
 
@@ -76,7 +80,9 @@ class EmpContTest {
                                       String salary, EmployeeStatus status, Long version) {
         LocalDateTime now = LocalDateTime.of(2024, 1, 1, 10, 0);
         return new EmployeeResponse(id, name, email, dept, new BigDecimal(salary),
-                LocalDate.of(2024, 1, 15), status, version, now, now);
+                LocalDate.of(2024, 1, 15), status, version, now, now,
+                "9876543210", "12 Park Street", null, null);
+
     }
 
     private EmployeeResponse amit() {
